@@ -1,10 +1,9 @@
 #!/bin/bash
 
-# Hysteria2 节点信息显示脚本 - 支持自定义节点名称
+# Hysteria2 节点信息显示脚本 - 支持自定义节点名称（最终完整版）
 
 # ==================== 自定义节点名称功能 ====================
 
-# 获取自定义节点名称
 get_custom_node_name() {
     local default_name="Hysteria2-Server"
     local name_file="/etc/hysteria/node-name.conf"
@@ -16,7 +15,6 @@ get_custom_node_name() {
     fi
 }
 
-# 设置自定义节点名称
 set_custom_node_name() {
     local name="$1"
     local name_file="/etc/hysteria/node-name.conf"
@@ -102,7 +100,7 @@ get_port_hopping_info() {
     fi
 }
 
-# ==================== 生成链接 ====================
+# ==================== 生成节点链接 ====================
 
 generate_node_link() {
     local server_ip="$1"
@@ -287,19 +285,9 @@ http:
 EOF
 }
 
-# ==================== 显示函数 ====================
+# ==================== 订阅文件生成（关键修改） ====================
 
-show_node_links() {
-    local node_link="$1"
-    clear
-    echo -e "${CYAN}=== 节点链接 ===${NC}"
-    echo ""
-    echo -e "${YELLOW}Hysteria2 节点链接:${NC}"
-    echo "$node_link"
-    echo ""
-}
-
-show_subscription_info() {
+generate_subscription_files() {
     local node_link="$1"
     local server_address="$2"
     local port="$3"
@@ -308,81 +296,66 @@ show_subscription_info() {
     local sni_domain="$6"
     local insecure="$7"
     
-    clear
-    echo -e "${CYAN}=== 订阅信息 ===${NC}"
-    echo ""
-    echo -e "${GREEN}节点链接已生成（使用自定义名称）${NC}"
-    echo "$node_link"
-    echo ""
-}
-
-show_client_configs() {
-    local server_address="$1"
-    local port="$2"
-    local auth_password="$3"
-    local obfs_password="$4"
-    local sni_domain="$5"
-    local insecure="$6"
+    local node_name=$(get_custom_node_name)
+    local server_ip=$(get_current_server_ip)
+    local configured_domain=$(get_server_domain)
+    local server_host="${configured_domain:-$server_ip}"
     
-    while true; do
-        clear
-        echo -e "${CYAN}=== 客户端配置 ===${NC}"
-        echo ""
-        echo -e "${GREEN}1.${NC} Hysteria2 官方客户端配置"
-        echo -e "${GREEN}2.${NC} Clash 配置"
-        echo -e "${GREEN}3.${NC} SingBox 配置"
-        echo -e "${RED}0.${NC} 返回"
-        echo -n -e "${BLUE}请选择: ${NC}"
-        read -r choice
-        
-        case $choice in
-            1)
-                generate_client_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
-                ;;
-            2)
-                local port_hopping=$(get_port_hopping_info)
-                generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure" "$port_hopping"
-                ;;
-            3)
-                generate_singbox_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
-                ;;
-            0) break ;;
-            *) echo "无效选项" ;;
-        esac
-        echo ""
-        read -p "按回车继续..."
-    done
+    local sub_dir="/var/www/html/sub"
+    mkdir -p "$sub_dir"
+    
+    local uuid=$(openssl rand -hex 8)
+    
+    local hysteria2_sub="$sub_dir/hysteria2-${uuid}.txt"
+    local clash_sub="$sub_dir/clash-${uuid}.yaml"
+    local singbox_sub="$sub_dir/singbox-${uuid}.json"
+    
+    echo "$node_link" > "$hysteria2_sub"
+    echo "$node_link" | base64 -w 0 > "$sub_dir/base64-${uuid}.txt"
+    
+    # Clash 订阅（使用自定义名称）
+    generate_clash_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure" "$(get_port_hopping_info)" > "$clash_sub"
+    
+    # SingBox 订阅（使用自定义名称）
+    generate_singbox_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure" > "$singbox_sub"
+    
+    chmod 644 "$sub_dir"/*
+    
+    echo -e "${GREEN}订阅文件生成成功！节点名称: $node_name${NC}"
+    echo ""
+    echo -e "${YELLOW}订阅链接示例:${NC}"
+    echo "http://$server_host/sub/clash-${uuid}.yaml"
+    echo ""
 }
 
-# ==================== 主函数 ====================
+# ==================== 显示函数 ====================
 
 display_node_info() {
     echo -e "${BLUE}Hysteria2 节点信息${NC}"
     echo ""
     
     if ! systemctl is-active --quiet hysteria-server.service; then
-        echo -e "${RED}警告: Hysteria2 服务未运行${NC}"
+        echo -e "${RED}警告: 服务未运行${NC}"
         return
     fi
     
     if [[ ! -f "$CONFIG_PATH" ]]; then
-        echo -e "${RED}错误: 配置文件不存在${NC}"
+        echo -e "${RED}配置文件不存在${NC}"
         return
     fi
     
     local server_address=$(get_server_address)
     local config_info=$(parse_config_info)
     IFS='|' read -r port auth_password obfs_password sni_domain cert_type insecure <<< "$config_info"
-    local node_name=$(get_custom_node_name)
     
+    local node_name=$(get_custom_node_name)
     echo -e "${CYAN}当前节点名称: ${YELLOW}$node_name${NC}"
     echo ""
     
     while true; do
-        echo -e "${CYAN}=== 选项 ===${NC}"
         echo -e "${GREEN}1.${NC} 查看节点链接"
-        echo -e "${GREEN}2.${NC} 查看订阅信息"
-        echo -e "${GREEN}3.${NC} 查看客户端配置"
+        echo -e "${GREEN}2.${NC} 生成订阅（推荐）"
+        echo -e "${GREEN}3.${NC} 客户端配置"
         echo -e "${GREEN}4.${NC} 设置节点名称"
         echo -e "${RED}0.${NC} 返回"
         echo -n -e "${BLUE}请选择 [0-4]: ${NC}"
@@ -391,25 +364,23 @@ display_node_info() {
         case $choice in
             1)
                 local link=$(generate_node_link "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
-                show_node_links "$link"
+                echo -e "${YELLOW}节点链接:${NC}"
+                echo "$link"
                 ;;
             2)
                 local link=$(generate_node_link "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure")
-                show_subscription_info "$link" "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
+                generate_subscription_files "$link" "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
                 ;;
             3)
-                show_client_configs "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
+                generate_client_config "$server_address" "$port" "$auth_password" "$obfs_password" "$sni_domain" "$insecure"
                 ;;
             4)
-                echo -e "${BLUE}当前名称: $node_name${NC}"
-                echo -n "输入新名称: "
+                echo -n "输入新节点名称: "
                 read -r new_name
-                if [[ -n "$new_name" ]]; then
-                    set_custom_node_name "$new_name"
-                fi
+                [[ -n "$new_name" ]] && set_custom_node_name "$new_name"
                 ;;
             0) break ;;
-            *) echo -e "${RED}无效选项${NC}" ;;
+            *) echo "无效选项" ;;
         esac
         echo ""
         read -p "按回车继续..."
