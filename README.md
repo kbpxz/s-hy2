@@ -21,7 +21,7 @@
 
 ### 一键安装
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sindricn/s-hy2/main/quick-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/kbpxz/s-hy2/main/quick-install.sh | sudo bash
 sudo s-hy2
 ```
 
@@ -41,6 +41,9 @@ sudo ./hy2-manager.sh
 
 
 ## 更新日志
+
+### v1.1.3 (2026-07-19)
+根据大佬的代码增加了一个自定义节点名称，方便区分节点。
 
 ### v1.1.2 (2025-10-01)
 **🐛 问题修复**
